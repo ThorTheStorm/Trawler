@@ -28,6 +28,7 @@ type Annotations struct {
 }
 
 type Alert struct {
+	Fingerprint string		`json:"fingerprint"`
 	Status      string      `json:"status"`
 	Labels      Labels      `json:"labels"`
 	Annotations Annotations `json:"annotations"`
@@ -84,3 +85,5 @@ func SendToWebhook(webhookURL string, data interface{}) error {
 func PrintAlarm(alarm Alarmathan) {
 	pp.Printf("Alarm Details: %+v\n", alarm)
 }
+
+func CreateAlarm (criticality string, severity string, instance string, )

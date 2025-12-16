@@ -22,6 +22,7 @@ type Config struct {
 			Team       string `yaml:"team"`
 			Cluster    string `yaml:"cluster"`
 			App        string `yaml:"app"`
+			VarselTilOS string `yaml:"varselTilOS"`
 		} `yaml:"alarmathan"`
 		OnlineCrls []struct {
 			Name string `yaml:"Name"`

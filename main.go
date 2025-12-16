@@ -29,6 +29,7 @@ func main() {
 		Status:    "firing",
 		Alerts: []alarmathan.Alert{
 			{
+				Fingerprint: "Torb-test",
 				Status: "firing",
 				Labels: alarmathan.Labels{
 					AlertName:   config.Configurations.Alarmathan.App + "-Test-Alert",
@@ -38,7 +39,7 @@ func main() {
 					Team:        config.Configurations.Alarmathan.Team,
 					Cluster:     config.Configurations.Alarmathan.Cluster,
 					VarselTilOS: "test",
-					App:         "trawler",
+					App:         "Trawler",
 					Criticality: "Kritisk",
 				},
 				Annotations: alarmathan.Annotations{
