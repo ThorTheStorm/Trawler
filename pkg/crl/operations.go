@@ -37,6 +37,14 @@ func ParseCertificateRevocationList(data []byte) (*x509.RevocationList, error) {
 	return crl, nil
 } // func parseCertificateRevocationList
 
+func ParseCertificate(data []byte) (*x509.Certificate, error) {
+	cert, err := x509.ParseCertificate(data)
+	if err != nil {
+		return nil, err
+	}
+	return cert, nil
+}
+
 func TimeToUpdateCRL(nextUpdate time.Time, nextCRLPublish time.Time, updateThreshold time.Duration) bool {
 	if nextCRLPublish.IsZero() {
 		// If NextCRLPublish is not available, fall back to NextUpdate

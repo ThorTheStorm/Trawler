@@ -2,11 +2,17 @@ package main
 
 import (
 	"encoding/asn1"
-	"log"
+	"fmt"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 	configParser "trawler/pkg/configYaml"
-	. "trawler/pkg/crl"
-	alarmathan "trawler/pkg/logging"
+	crl "trawler/pkg/crl"
+	helpers "trawler/pkg/helpers"
+	logging "trawler/pkg/logging"
+	"trawler/pkg/storage"
 )
 
 type crlTimeStamps struct {
@@ -15,104 +21,196 @@ type crlTimeStamps struct {
 	NextCRLPublish time.Time `json:"nextPublish"`
 }
 
+type ErrorReport struct {
+	Err         error
+	Context     string
+	Severity    logging.SeverityLevel
+	Criticality logging.CriticalityLevel
+}
+
+var wg sync.WaitGroup
+
 func main() {
 
+	////////////////////////////////////////////////
+	//////////// INITIALIZATION ////////////////////
+	////////////////////////////////////////////////
+
 	// Import configurations from config file
-	config, err := configParser.ParseConfig("./config.yaml")
-	if err != nil {
-		log.Fatalf("Failed to parse config: %v", err)
-	}
+	var configPath string
 
-	// Create a sample alarmathan alarm
-	var alarm = alarmathan.Alarmathan{
-		Receivers: "varseltilos",
-		Status:    "firing",
-		Alerts: []alarmathan.Alert{
-			{
-				Fingerprint: "Torb-test",
-				Status: "firing",
-				Labels: alarmathan.Labels{
-					AlertName:   config.Configurations.Alarmathan.App + "-Test-Alert",
-					Instance:    "toregil-01",
-					Severity:    "Normal",
-					ServiceID:   config.Configurations.Alarmathan.ServiceID,
-					Team:        config.Configurations.Alarmathan.Team,
-					Cluster:     config.Configurations.Alarmathan.Cluster,
-					VarselTilOS: "test",
-					App:         "Trawler",
-					Criticality: "Kritisk",
-				},
-				Annotations: alarmathan.Annotations{
-					Description: "This is the trawler, reporting for duty.",
-					Summary:     "o7 o7 o7",
-				},
-				StartsAt: "2025-12-15T12:00:00Z",
-				EndsAt:   "2025-12-15T16:00:00Z",
-			},
-		},
-		GroupLabels: alarmathan.GroupLabels{
-			AlertName: "TEST-ALERT",
-		},
-		CommonLabels: alarmathan.CommonLabels{
-			Severity: "critical",
-		},
-		ExternalURL:     "https://nhn.no",
-		Version:         4,
-		GroupKey:        "{}:{{alertname=\"TestAlert\"}}",
-		TruncatedAlerts: 0,
-	} // var alarm
-
-	// Send the alarm to the webhook
-	webhookURL := config.Configurations.Alarmathan.WebhookURL
-	err = alarmathan.SendToWebhook(webhookURL, alarm)
-	if err != nil {
-		log.Printf("Error sending to webhook: %v\n", err)
+	if _, exists := os.LookupEnv("CONFIG_PATH"); exists {
+		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, "CONFIG_PATH environment variable found, using that for config path.")
+		configPath = os.Getenv("CONFIG_PATH")
 	} else {
-		log.Println("Alarm sent to webhook successfully.")
+		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, "CONFIG_PATH environment variable not found, using default path for config.")
+		configPath = "/config/configuration.yaml"
 	}
 
-	// Define the OID for the Microsoft-specific "Next CRL Publish" extension
-	var NEXT_PUBLISH_OID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 21, 4}
+	logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, "Parsing configuration")
+	config, err := configParser.ParseConfig(configPath)
+	if err != nil {
+		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to parse config: %v", err))
+		os.Exit(1)
+	}
 
-	// Define where to retrieve the CRL from
-	//crlUrl := "http://crl4.digicert.com/DigiCertEVRSACAG2.crl"
+	////////////////////////////////////////////////
+	//////////// MAIN PROGRAM //////////////////////
+	////////////////////////////////////////////////
 
+	wg.Add(2)
+
+	serverError := make(chan error, 1)
+	errChannel := make(chan ErrorReport, 100)
+	stopChannel := make(chan struct{}, 1)
+
+	go func() {
+		handleErrors(errChannel, config)
+		defer wg.Done()
+	}()
+
+	// Start CRL retrieval worker
+	go func() {
+		crlRetrievalWorker(config, errChannel, stopChannel)
+		wg.Done()
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Wait for termination signal
+	<-quit
+	logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Termination signal received, shutting down...")
+
+	// Signal goroutines to stop
+	close(stopChannel)
+	close(errChannel)
+	close(serverError)
+
+	wg.Wait()
+
+	logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Shutting down gracefully...")
+}
+
+func crlRetrievalWorker(config *configParser.Config, errChannel chan<- ErrorReport, stopChan <-chan struct{}) (err error) {
+
+	// Create ticker from config interval
+	interval := time.Duration(config.Configurations.Global.PollIntervalMinutes) * time.Minute
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Run once immediately, then on interval
+	processCRLs(config, errChannel)
+
+	for {
+		select {
+		case <-stopChan:
+			// Clean shutdown signal received
+			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Graceful shutdown of Trawler.")
+			return
+		case <-ticker.C:
+			// Execute on interval
+			processCRLs(config, errChannel)
+		}
+	}
+}
+
+func processCRLs(config *configParser.Config, errChannel chan<- ErrorReport) error {
 	// Loop through all CRL URLs defined in the config file
 	for i := 0; i < len(config.Configurations.OnlineCrls); i++ {
 
 		crlUrl := config.Configurations.OnlineCrls[i].URL // Get the URL from the config file
+		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Processing CRL from URL: %s", crlUrl))
 
 		// Read out the raw CRL data from the crl retrieved from the above URL
-		rawCRL, err := RetrieveCertificateRevocationList(crlUrl)
+		rawCRL, err := crl.RetrieveCertificateRevocationList(crlUrl)
 		if err != nil {
-			log.Printf("Error retrieving CRL: %v\n", err)
-			return
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error retrieving CRL: %v", err))
+			return nil
 		}
 
 		// Parse the raw CRL data into a structured format from ASN.1 DER
-		decodedCRL, err := ParseCertificateRevocationList(rawCRL)
+		decodedCRL, err := crl.ParseCertificateRevocationList(rawCRL)
 		if err != nil {
-			log.Printf("Error parsing CRL: %v\n", err)
-			return
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error parsing CRL: %v", err))
+			return nil
 		}
-		crl := decodedCRL
+
+		// Define the OID for the Microsoft-specific "Next CRL Publish" extension
+		var NEXT_PUBLISH_OID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 21, 4}
 
 		// Extract the Next CRL Publish time from the Microsoft-specific extension
 		var nextPublishTime time.Time
-		nextCRLPublish := FindExtension(crl.Extensions, NEXT_PUBLISH_OID)
+		nextCRLPublish := crl.FindExtension(decodedCRL.Extensions, NEXT_PUBLISH_OID)
 		if nextCRLPublish != nil {
 			_, err := asn1.Unmarshal(nextCRLPublish.Value, &nextPublishTime)
 			if err != nil {
-				log.Printf("Error unmarshaling Next CRL Publish time: %v\n", err)
+				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error unmarshaling Next CRL Publish time: %v", err))
 			}
 		} else {
-			log.Printf("Next CRL Publish extension not found.\n")
+			logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "Next CRL Publish extension not found.")
 		}
 
 		// Prepare the published values for output/usage
 		if nextPublishTime.IsZero() {
 			nextPublishTime = time.Time{} // Set to zero value if not found
 		}
+
+		certData, err := os.ReadFile(config.Configurations.OnlineCrls[i].CertFile)
+		if err != nil {
+			errChannel <- ErrorReport{
+				Err:         err,
+				Context:     fmt.Sprintf("Error reading certificate file: %v. Path: %s", err, config.Configurations.OnlineCrls[i].CertFile),
+				Severity:    logging.SeverityWarning,
+				Criticality: logging.CriticalityLow,
+			}
+			// logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error reading certificate file: %v. Path: %s", err, config.Configurations.OnlineCrls[i].CertFile))
+			return nil
+		}
+
+		// Validate and save the CRL to defined path if valid
+		certDataParsed, err := crl.ParseCertificate(certData)
+		if err != nil {
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error parsing certificate file: %v", err))
+			return nil
+		}
+
+		valid, err := crl.CheckIfCRLIsValid(*decodedCRL, *certDataParsed) // Validate the CRL against the certificate defined in config, and timestamps
+		if err != nil {
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error validating CRL: %v", err))
+		} else if valid {
+			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CRL from %s is valid.", crlUrl))
+			// Verify and save the CRL to a file
+			crlFilePath := fmt.Sprintf("%s%s.crl", config.Configurations.Global.OnlineCrlsPath, config.Configurations.OnlineCrls[i].Name)
+
+			existingFileData, err := os.ReadFile(crlFilePath) // Check if file already exists
+			if err == nil && len(existingFileData) > 0 {
+				logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Existing CRL file found at %s, comparing hashes.", crlFilePath))
+
+				existingHash := helpers.ComputeHash(existingFileData)
+				newHash := helpers.ComputeHash(rawCRL)
+				hashMaxLength := 25
+				logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "Existing CRL Hash:", existingHash))
+				logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "New CRL Hash:", newHash))
+
+				if existingHash == newHash {
+					logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("No changes detected in CRL from %s, skipping save.", crlUrl))
+					continue // Skip saving if no changes
+				} else {
+					logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Changes detected in CRL from %s, updating file.", crlUrl))
+					logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("CRLFilePath to save to: %s", crlFilePath))
+					err = storage.SaveCRLToFile(crlFilePath, rawCRL)
+					if err != nil {
+						logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error saving CRL to file: %v", err))
+					} else {
+						logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CRL saved to %s", crlFilePath))
+					}
+				}
+			}
+		} else {
+			logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, fmt.Sprintf("CRL from %s is NOT valid.", crlUrl))
+		}
+
 		// crlTimeStamps := crlTimeStamps{
 		// 	ThisUpdate:     crl.ThisUpdate,
 		// 	NextUpdate:     crl.NextUpdate,
@@ -124,4 +222,25 @@ func main() {
 		// pp.Printf("Is NextCRLPublish Zero Value? %v\n", nextPublishTime.IsZero()) // Check and print if NextCRLPublish is zero value
 
 	} // for i, crlUrl := range config.Configuration.OnlineCrls.URL
+
+	return nil
+} // func processCRLs
+
+// handleErrors allows for easy handling of errors throughout the program
+func handleErrors(errChannel <-chan ErrorReport, config *configParser.Config) {
+	for errReport := range errChannel {
+		// Log to console
+		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent,
+			fmt.Sprintf("%s: %v", errReport.Context, errReport.Err))
+
+		// Send to external endpoint
+		alarm := logging.GenerateAlarm(*config,
+			errReport.Context,
+			errReport.Criticality,
+			errReport.Severity,
+			"ThisInstanceAsItWere",
+			errReport.Err.Error())
+
+		logging.SendToWebhook(config.Configurations.Alarmathan.WebhookURL, *alarm)
+	}
 }

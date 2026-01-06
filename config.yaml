@@ -2,9 +2,10 @@ configurations:
   global:
     logLevel: info
     outputFormat: pretty
-    pollIntervalMinutes: 60
-    onlineCrlspath: /home/torb/HelseGitLab/trawler/crls/
+    pollIntervalMinutes: 2
+    onlineCrlsPath: /crls/
   alarmathan:
+    activate: false
     webhookURL: https://alarm.test.nhn.no/v1/webhook
     serviceid: "287"
     team: Allmenn sky
@@ -14,10 +15,16 @@ configurations:
   onlineCrls:
   # List of online CRLs to monitor
   ## NHN online intermediates
+  ### NHN Internal CA - PROD
+  - name: NHN Internal CA - PROD
+    url: http://crl.nhn.no/crl/NHN%20Internal%20CA%20-%20PROD.crl
+    certFile: /certs/online/NHN Internal CA - PROD.crt
   ### NHN Internal CA - TEST
-  - Name: NHN Internal CA - TEST(2)
-    URL: http://crl.nhn.no/crl/NHN%20Internal%20CA%20-%20TEST(2).crl
+  - name: NHN Internal CA - TEST(2)
+    url: http://crl.nhn.no/crl/NHN%20Internal%20CA%20-%20TEST(2).crl
+    certFile: /certs/online/NHN Internal CA - TEST(2).crt
   ## DigiCert CRLs
-  ### DigiCert EV RSA CA G2
-  - Name: DigiCert EV RSA CA G2
-    URL: http://crl4.digicert.com/DigiCertEVRSACAG2.crl
+  # ### DigiCert EV RSA CA G2
+  # - Name: DigiCert EV RSA CA G2
+  #   URL: http://crl4.digicert.com/DigiCertEVRSACAG2.crl
+  #   CertFile: ./certs/DigiCert EV RSA CA G2.crt

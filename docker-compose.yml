@@ -1,0 +1,34 @@
+services:
+  trawler:
+    build: .
+    container_name: trawler
+    env_file:
+      - .env
+    volumes:
+      - ./config.yaml:/config/configuration.yaml
+      - ./crls:/crls
+      - ./certs:/certs
+    restart: unless-stopped
+    networks:
+      - default
+    command: ["./trawler-app"]
+  s3:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - ./docker/minio/data:/data
+      - ./docker/minio/config:/root/.minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: ["server", "/data", "--console-address", ":9001"]
+    networks:
+      - default
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
