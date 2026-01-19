@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Configurations struct {
 		Global struct {
+			LocalStorageEnabled bool   `yaml:"localStorageEnabled"`
 			ServiceID           string `yaml:"serviceid"`
 			LogLevel            string `yaml:"logLevel"`
 			OutputFormat        string `yaml:"outputFormat"`

@@ -1,5 +1,7 @@
 configurations:
   global:
+    localStorageEnabled: true
+    s3StorageEnabled: true
     logLevel: info
     outputFormat: pretty
     pollIntervalMinutes: 2

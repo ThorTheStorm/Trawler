@@ -1,6 +1,7 @@
 services:
   trawler:
-    build: .
+    image: pki/trawler:s3
+    #build: .
     container_name: trawler
     env_file:
       - .env
@@ -13,7 +14,7 @@ services:
       - default
     command: ["./trawler-app"]
   s3:
-    image: minio/minio:latest
+    image: ncr.sky.nhn.no/dockerhub/minio/minio:RELEASE.2024-12-13T22-19-12Z
     container_name: minio
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -24,6 +25,7 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+      - "9002:9002"
     command: ["server", "/data", "--console-address", ":9001"]
     networks:
       - default
