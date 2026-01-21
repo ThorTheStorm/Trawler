@@ -67,3 +67,15 @@ func FindExtension(extensions []pkix.Extension, oid asn1.ObjectIdentifier) *pkix
 	}
 	return nil
 } // func findExtension
+
+func findNextPublishExtensionValue(extensions []pkix.Extension, nextPublishTime *time.Time) error {
+	NEXT_PUBLISH_OID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 21, 7}
+	nextCRLPublish := FindExtension(extensions, NEXT_PUBLISH_OID)
+	if nextCRLPublish != nil {
+		_, err := asn1.Unmarshal(nextCRLPublish.Value, &nextPublishTime)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/asn1"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -42,7 +44,15 @@ func init() {
 		s3Client, err = s3.AWSCreateS3Client()
 		if err != nil {
 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to create S3 client: %v", err))
-			os.Exit(1)
+			// logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("s3Client: %v", s3Client))
+		}
+
+		// Create S3 bucket if it doesn't exist
+		_, err = s3Client.CreateBucket(context.TODO(), s3.AWSCreateBucketInput(
+			os.Getenv("S3_BUCKET_NAME"),
+		))
+		if err != nil {
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error creating S3 bucket: %v", err))
 		}
 	}
 }
@@ -136,7 +146,10 @@ func processCRLs(config *configParser.Config, errChannel chan<- ErrorReport) err
 	for i := 0; i < len(config.Configurations.OnlineCrls); i++ {
 
 		crlUrl := config.Configurations.OnlineCrls[i].URL // Get the URL from the config file
-		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Processing CRL from URL: %s", crlUrl))
+		debugMsgCRL := fmt.Sprintf("Processing CRL from URL: %s", crlUrl)
+		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, strings.Repeat("-", len(debugMsgCRL)))
+		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, debugMsgCRL)
+		logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, strings.Repeat("-", len(debugMsgCRL)))
 
 		// Read out the raw CRL data from the crl retrieved from the above URL
 		rawCRL, err := crl.RetrieveCertificateRevocationList(crlUrl)
@@ -150,26 +163,6 @@ func processCRLs(config *configParser.Config, errChannel chan<- ErrorReport) err
 		if err != nil {
 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error parsing CRL: %v", err))
 			return nil
-		}
-
-		// Define the OID for the Microsoft-specific "Next CRL Publish" extension
-		var NEXT_PUBLISH_OID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 21, 4}
-
-		// Extract the Next CRL Publish time from the Microsoft-specific extension
-		var nextPublishTime time.Time
-		nextCRLPublish := crl.FindExtension(decodedCRL.Extensions, NEXT_PUBLISH_OID)
-		if nextCRLPublish != nil {
-			_, err := asn1.Unmarshal(nextCRLPublish.Value, &nextPublishTime)
-			if err != nil {
-				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error unmarshaling Next CRL Publish time: %v", err))
-			}
-		} else {
-			logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "Next CRL Publish extension not found.")
-		}
-
-		// Prepare the published values for output/usage
-		if nextPublishTime.IsZero() {
-			nextPublishTime = time.Time{} // Set to zero value if not found
 		}
 
 		certData, err := os.ReadFile(config.Configurations.OnlineCrls[i].CertFile)
@@ -191,53 +184,112 @@ func processCRLs(config *configParser.Config, errChannel chan<- ErrorReport) err
 			return nil
 		}
 
-		valid, err := crl.CheckIfCRLIsValid(*decodedCRL, *certDataParsed) // Validate the CRL against the certificate defined in config, and timestamps
+		valid, nextPublish, nextPublishTime, err := crl.IsCRLValid(decodedCRL, certDataParsed) // Validate the CRL against the certificate defined in config, and timestamps
 		if err != nil {
 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error validating CRL: %v", err))
 		} else if valid {
 			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CRL from %s is valid.", crlUrl))
 
-			// Determine storage method
-			if localStorageEnabled := config.Configurations.Global.LocalStorageEnabled; localStorageEnabled {
-				// Verify and save the CRL to a file
-				crlFilePath := fmt.Sprintf("%s%s.crl", config.Configurations.Global.OnlineCrlsPath, config.Configurations.OnlineCrls[i].Name)
+			var proceedToStore bool = false
 
-				existingFileData, err := os.ReadFile(crlFilePath) // Check if file already exists
-				if err == nil && len(existingFileData) > 0 {
-					logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Existing CRL file found at %s, comparing hashes.", crlFilePath))
+			switch nextPublish {
+			case false:
+				logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, "CRL does not contain NextPublish (ADCS-specific)")
+				proceedToStore = true
+			case true:
+				logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("CRL contains NextPublish (ADCS-specific). NextPublishTime: %v", nextPublishTime))
 
-					existingHash := helpers.ComputeHash(existingFileData)
-					newHash := helpers.ComputeHash(rawCRL)
-					hashMaxLength := 25
-					logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "Existing CRL Hash:", existingHash))
-					logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "New CRL Hash:", newHash))
+				if time.Now().After(nextPublishTime) {
+					proceedToStore = true
+				}
+			}
+			if proceedToStore {
+				// Store with selected storage backends
 
-					if existingHash == newHash {
-						logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("No changes detected in CRL from %s, skipping save.", crlUrl))
-						continue // Skip saving if no changes
-					} else {
-						logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Changes detected in CRL from %s, updating file.", crlUrl))
-						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("CRLFilePath to save to: %s", crlFilePath))
-						err = storage.SaveCRLToFile(crlFilePath, rawCRL)
-						if err != nil {
-							logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error saving CRL to file: %v", err))
+				// Local storage
+				if localStorageEnabled := config.Configurations.Global.LocalStorageEnabled; localStorageEnabled {
+					// Verify and save the CRL to a file
+					crlFilePath := fmt.Sprintf("%s%s.crl", config.Configurations.Global.OnlineCrlsPath, config.Configurations.OnlineCrls[i].Name)
+
+					existingFileData, err := os.ReadFile(crlFilePath) // Check if file already exists
+					if err == nil && len(existingFileData) > 0 {
+						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Existing CRL file found at %s, comparing hashes.", crlFilePath))
+
+						existingHash := helpers.ComputeHash(existingFileData)
+						newHash := helpers.ComputeHash(rawCRL)
+						hashMaxLength := 25
+						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "Existing CRL Hash:", existingHash))
+						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "New CRL Hash:", newHash))
+
+						if existingHash == newHash {
+							logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("No changes detected in CRL from %s, skipping save.", crlUrl))
+							// continue // Skip saving if no changes
 						} else {
-							logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CRL saved to %s", crlFilePath))
+							logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Changes detected in CRL from %s, updating file.", crlUrl))
+							logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("CRLFilePath to save to: %s", crlFilePath))
+							err = storage.SaveCRLToFile(crlFilePath, rawCRL)
+							if err != nil {
+								logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error saving CRL to file: %v", err))
+							} else {
+								logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CRL saved to %s", crlFilePath))
+							}
 						}
 					}
 				}
-			}
-			if os.Getenv("S3_STORAGE_ENABLED") == "true" || s3Client != nil {
-				// Save CRL to S3
-				result, err := s3Client.ListBuckets(context.TODO(), s3.AWSListBucketsInput())
-				if err != nil {
-					logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error accessing S3 bucket: %v", err))
-				} else {
-					logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("S3 ListBuckets result: %v", result))
+				// S3 storage
+				if os.Getenv("S3_STORAGE_ENABLED") == "true" && s3Client != nil {
+					// Verify and save the CRL to a file
+					crlS3FileName := fmt.Sprintf("%s.crl", config.Configurations.OnlineCrls[i].Name)
+					crlS3FullPath := fmt.Sprintf("%s%s.crl", os.Getenv("S3_SERVICE_ENDPOINT"), url.PathEscape(config.Configurations.OnlineCrls[i].Name))
+
+					// Check if file already exists
+					s3ObjectOutput, err := s3Client.GetObject(context.TODO(), s3.AWSGetObjectInput(
+						os.Getenv("S3_BUCKET_NAME"),
+						crlS3FileName,
+					))
+					if err != nil {
+						logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CRL file %s does not exist in S3 bucket, will proceed to upload new file.", crlS3FileName))
+					}
+
+					var existingFileData []byte
+
+					if s3ObjectOutput != nil && s3ObjectOutput.Body != nil {
+						existingFileData, err = io.ReadAll(s3ObjectOutput.Body)
+					}
+
+					// if file exists, continue to compare hashes
+					if err == nil && len(existingFileData) > 0 {
+						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Existing CRL file found at %s, comparing hashes.", crlS3FullPath))
+
+						existingHash := helpers.ComputeHash(existingFileData)
+						newHash := helpers.ComputeHash(rawCRL)
+						hashMaxLength := 25
+						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "Existing CRL Hash:", existingHash))
+						logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("%-*s %s", hashMaxLength, "New CRL Hash:", newHash))
+
+						if existingHash == newHash {
+							logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("No changes detected in CRL from %s, skipping save.", crlUrl))
+							// continue // Skip saving if no changes
+						} else {
+							// Save CRL to S3
+							logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Changes detected in CRL from %s compared to version on S3, updating file.", crlUrl))
+							logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("S3 storage path to save to: %s", crlS3FullPath))
+							result, err := s3Client.PutObject(context.TODO(), s3.AWSPutObjectInput(
+								os.Getenv("S3_BUCKET_NAME"),
+								fmt.Sprintf("%s.crl", config.Configurations.OnlineCrls[i].Name),
+								rawCRL,
+							))
+							if err != nil {
+								logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error saving to S3 bucket: %v", err))
+							} else {
+								logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("S3 PutObject result: %v", result))
+							}
+						}
+					}
+				} else if s3Client != nil {
+					logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "S3 client not initialized, skipping S3 storage.")
 				}
-			} else if s3Client != nil {
-				logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "S3 client not initialized, skipping S3 storage.")
-			}
+			} // if isNextPublishedPassed
 		} else {
 			logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, fmt.Sprintf("CRL from %s is NOT valid.", crlUrl))
 		}
