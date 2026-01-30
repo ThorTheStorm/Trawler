@@ -5,7 +5,9 @@ configurations:
     logLevel: info
     outputFormat: pretty
     pollIntervalMinutes: 2
-    onlineCrlsPath: /crls/
+    onlineCrlsPath: /git/crls/online/
+    CAstoragePath: /git/certs/
+    CAGitRepoURL: "https://git.nhn.no/ldp/pki/pki.nhn.no.git"
   alarmathan:
     activate: false
     webhookURL: https://alarm.test.nhn.no/v1/webhook

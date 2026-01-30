@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	configParser "trawler/pkg/configYaml"
+	config "trawler/pkg/config"
 
 	"github.com/k0kubun/pp"
 )
@@ -108,7 +108,7 @@ func PrintAlarm(alarm *Alarmathan) {
 }
 
 // Formats the alarm and returns a pointer to the filled alarm-object
-func GenerateAlarm(config configParser.Config, alertName string, criticality CriticalityLevel, severity SeverityLevel, instance string, description string) *Alarmathan {
+func GenerateAlarm(config config.Config, alertName string, criticality CriticalityLevel, severity SeverityLevel, instance string, description string) *Alarmathan {
 
 	// Generate fingerprint for the alert
 	identity := fmt.Sprintf("%s:%s:%s", alertName, instance, severity)

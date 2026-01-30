@@ -1,4 +1,4 @@
-package configParser
+package config
 
 import (
 	"os"
@@ -15,6 +15,8 @@ type Config struct {
 			OutputFormat        string `yaml:"outputFormat"`
 			PollIntervalMinutes int    `yaml:"pollIntervalMinutes"`
 			OnlineCrlsPath      string `yaml:"onlineCrlsPath"`
+			GitStoragePath      string `yaml:"GitStoragePath"`
+			GitRepoURL          string `yaml:"GitRepoURL"`
 		} `yaml:"global"`
 		Alarmathan struct {
 			Activate    bool   `yaml:"activate"`
