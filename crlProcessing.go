@@ -63,11 +63,12 @@ func processCRLs(config *cfg.Config, errChannel chan<- logging.ErrorReport) erro
 			return nil
 		}
 
-		certData, err := os.ReadFile(config.Configurations.OnlineCrls[i].CertFile)
+		certFilePath := config.Configurations.Global.CAstoragePath + config.Configurations.OnlineCrls[i].CertFileName
+		certData, err := os.ReadFile(certFilePath)
 		if err != nil {
 			errChannel <- logging.ErrorReport{
 				Err:         err,
-				Context:     fmt.Sprintf("Error reading certificate file: %v. Path: %s", err, config.Configurations.OnlineCrls[i].CertFile),
+				Context:     fmt.Sprintf("Error reading certificate file: %v. Path: %s", err, certFilePath),
 				Severity:    logging.SeverityWarning,
 				Criticality: logging.CriticalityLow,
 			}

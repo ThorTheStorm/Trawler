@@ -7,16 +7,17 @@ import (
 	"sync"
 	"syscall"
 	cfg "trawler/pkg/config"
-	gitops "trawler/pkg/git"
 	logging "trawler/pkg/logging"
 	"trawler/pkg/storage"
 	"trawler/pkg/storage/s3"
+	"trawler/pkg/vault"
 )
 
-var wg sync.WaitGroup   // WaitGroup for goroutines
-var s3Client *s3.Client // S3 client variable
-var configPath string   // Configuration variables
-var config *cfg.Config  // Global configuration variable
+var wg sync.WaitGroup              // WaitGroup for goroutines
+var s3Client *s3.Client            // S3 client variable
+var configPath string              // Configuration variables
+var config *cfg.Config             // Global configuration variable
+var vaultClient *vault.VaultClient // Vault client variable
 
 func init() {
 
@@ -72,31 +73,40 @@ func init() {
 		}
 	}
 
-	// Retrieve certificates for CA validation
-	if config.Configurations.Global.GitStoragePath != "" && config.Configurations.Global.GitRepoURL != "" {
-		repoExist := false
-		repo, err := gitops.OpenRepository(config.Configurations.Global.GitStoragePath)
-		if err != nil && err == gitops.ErrRepositoryNotExists {
-			logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "Couldn't find repository in given directory. Cloning from remote.")
-
-			repo, err = gitops.CloneRepository(config.Configurations.Global.GitRepoURL, config.Configurations.Global.GitStoragePath)
-
-		} else if err != nil {
-			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to open CA storage repository: %v", err))
-		} else {
-			repoExist = true
-		}
-
-		if repoExist == true {
-			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Pulling latest changes from CA storage repository.")
-			err = gitops.PullRepository(repo)
-			if err != nil {
-				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to pull latest changes from CA storage repository: %v", err))
-			}
-		}
-	} else {
-		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, "CA storage path or Git repository URL not set in configuration.")
+	// Get vault client
+	if os.Getenv("VAULT_ENABLED") == "true" {
+		vaultClient = vault.GetVaultClient()
 	}
+	// // Retrieve certificates for CA validation
+	// if config.Configurations.Global.GitStoragePath != "" && config.Configurations.Global.GitRepoURL != "" {
+	// 	repoExist := false // Set default to false and only set to true if we successfully open or clone the repository
+	// 	repo, err := gitops.OpenRepository(config.Configurations.Global.GitStoragePath)
+	// 	if err != nil && err == gitops.ErrRepositoryNotExists {
+	// 		logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "Couldn't find repository in given directory. Cloning from remote.")
+
+	// 		repo, err = gitops.CloneRepository(config.Configurations.Global.GitRepoURL, config.Configurations.Global.GitStoragePath)
+	// 		if err != nil {
+	// 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to clone CA storage repository: %v", err))
+	// 		} else {
+	// 			repoExist = true
+	// 		}
+	// 	} else if err != nil {
+	// 		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to open CA storage repository: %v", err))
+	// 	} else {
+	// 		repoExist = true
+	// 	}
+
+	// 	// Only attempt to pull changes if repository exists (either opened or cloned successfully)
+	// 	if repoExist == true {
+	// 		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Pulling latest changes from CA storage repository.")
+	// 		err = gitops.PullRepository(repo)
+	// 		if err != nil {
+	// 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to pull latest changes from CA storage repository: %v", err))
+	// 		}
+	// 	}
+	// } else {
+	// 	logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, "CA storage path or Git repository URL not set in configuration.")
+	// }
 }
 
 func main() {

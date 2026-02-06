@@ -15,8 +15,10 @@ type Config struct {
 			OutputFormat        string `yaml:"outputFormat"`
 			PollIntervalMinutes int    `yaml:"pollIntervalMinutes"`
 			OnlineCrlsPath      string `yaml:"onlineCrlsPath"`
+			OfflineCrlsPath     string `yaml:"offlineCrlsPath"`
 			GitStoragePath      string `yaml:"GitStoragePath"`
-			GitRepoURL          string `yaml:"GitRepoURL"`
+			CAstoragePath       string `yaml:"CAstoragePath"`
+			GitRepoURL          string `yaml:"gitRepoURL"`
 		} `yaml:"global"`
 		Alarmathan struct {
 			Activate    bool   `yaml:"activate"`
@@ -28,9 +30,9 @@ type Config struct {
 			VarselTilOS string `yaml:"varselTilOS"`
 		} `yaml:"alarmathan"`
 		OnlineCrls []struct {
-			Name     string `yaml:"name"`
-			URL      string `yaml:"url"`
-			CertFile string `yaml:"certFile"`
+			Name         string `yaml:"name"`
+			URL          string `yaml:"url"`
+			CertFileName string `yaml:"certFileName"`
 		} `yaml:"onlineCrls"`
 	} `yaml:"configurations"`
 }

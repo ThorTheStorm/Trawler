@@ -37,10 +37,10 @@ func AWSValidateS3ConfigFromEnv() (*S3Config, error) {
 	var missingVars []string
 
 	if os.Getenv("AWS_ACCESS_KEY_ID") == "" {
-		missingVars = append(missingVars, "AWS_S3_API_KEY_ID")
+		missingVars = append(missingVars, "AWS_ACCESS_KEY_ID")
 	}
 	if os.Getenv("AWS_SECRET_ACCESS_KEY") == "" {
-		missingVars = append(missingVars, "AWS_S3_API_KEY_SECRET")
+		missingVars = append(missingVars, "AWS_SECRET_ACCESS_KEY")
 	}
 	if os.Getenv("AWS_S3_SERVICE_INSTANCE_ID") == "" {
 		logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "Environment variable AWS_S3_SERVICE_INSTANCE_ID is not set, but not necessary. Continuing.")

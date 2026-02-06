@@ -5,9 +5,11 @@ configurations:
     logLevel: info
     outputFormat: pretty
     pollIntervalMinutes: 2
-    onlineCrlsPath: /git/crls/online/
-    CAstoragePath: /git/certs/
-    CAGitRepoURL: "https://git.nhn.no/ldp/pki/pki.nhn.no.git"
+    onlineCrlsPath: /crls/online/
+    offlineCrlsPath: /crls/offline/
+    gitStoragePath: /git/
+    CAstoragePath: /certs/
+    gitRepoURL: "https://git.nhn.no/ldp/pki/pki.nhn.no.git"
   alarmathan:
     activate: false
     webhookURL: https://alarm.test.nhn.no/v1/webhook
@@ -22,11 +24,11 @@ configurations:
   ### NHN Internal CA - PROD
   - name: NHN Internal CA - PROD
     url: http://crl.nhn.no/crl/NHN%20Internal%20CA%20-%20PROD.crl
-    certFile: /certs/online/NHN Internal CA - PROD.crt
+    certFileName: NHN Internal CA - PROD.crt
   ### NHN Internal CA - TEST
   - name: NHN Internal CA - TEST(2)
     url: http://crl.nhn.no/crl/NHN%20Internal%20CA%20-%20TEST(2).crl
-    certFile: /certs/online/NHN Internal CA - TEST(2).crt
+    certFileName: NHN Internal CA - TEST(2).crt
   ## DigiCert CRLs
   # ### DigiCert EV RSA CA G2
   # - Name: DigiCert EV RSA CA G2
