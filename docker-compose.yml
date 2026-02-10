@@ -1,18 +1,19 @@
 services:
   trawler:
-    image: ncr.sky.nhn.no/team-krypto/trawler:vault #v0.0.2
+    image: ncr.sky.nhn.no/team-krypto/trawler:v0.1.1
     #build: .
     container_name: trawler
     env_file:
       - .env
     volumes:
       - ./config.yaml:/config/configuration.yaml
-      - ./crls:/crls
-      - ./certs:/certs
+      - trawler-data:/data:z
       - ./git:/git
     restart: unless-stopped
     networks:
       - default
+    ports:
+      - "8080:8080"
     command: ["./trawler-app"]
   s3:
     image: ncr.sky.nhn.no/dockerhub/minio/minio:RELEASE.2024-12-13T22-19-12Z
@@ -21,8 +22,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - ./docker/minio/data:/data
-      - ./docker/minio/config:/root/.minio
+      - minio-data:/data
+      - minio-config:/root/.minio
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -35,3 +36,8 @@ services:
 networks:
   default:
     driver: bridge
+
+volumes:
+  minio-data:
+  minio-config:
+  trawler-data:

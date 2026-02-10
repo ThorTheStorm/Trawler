@@ -28,6 +28,13 @@ RUN apk --no-cache add ca-certificates
 # Create new user and group
 RUN addgroup -S appgroup && adduser -S -G appgroup appuser
 
+# Create data directories and set permissions
+RUN mkdir -p /data/certs/online \
+    mkdir -p /data/certs/offline \
+    mkdir -p /data/crls/online \
+    mkdir -p /data/crls/offline \
+    mkdir -p /data/git && \
+    chown -R appuser:appgroup /data
 # Change owner of group
 RUN mkdir /trawler && chown -R appuser:appgroup /trawler
 

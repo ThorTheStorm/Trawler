@@ -9,16 +9,19 @@ import (
 type Config struct {
 	Configurations struct {
 		Global struct {
-			LocalStorageEnabled bool   `yaml:"localStorageEnabled"`
-			ServiceID           string `yaml:"serviceid"`
-			LogLevel            string `yaml:"logLevel"`
-			OutputFormat        string `yaml:"outputFormat"`
-			PollIntervalMinutes int    `yaml:"pollIntervalMinutes"`
-			OnlineCrlsPath      string `yaml:"onlineCrlsPath"`
-			OfflineCrlsPath     string `yaml:"offlineCrlsPath"`
-			GitStoragePath      string `yaml:"GitStoragePath"`
-			CAstoragePath       string `yaml:"CAstoragePath"`
-			GitRepoURL          string `yaml:"gitRepoURL"`
+			LocalStorageEnabled  bool   `yaml:"localStorageEnabled"`
+			ServiceID            string `yaml:"serviceid"`
+			LogLevel             string `yaml:"logLevel"`
+			OutputFormat         string `yaml:"outputFormat"`
+			PollIntervalMinutes  int    `yaml:"pollIntervalMinutes"`
+			DataPath             string `yaml:"dataPath"`
+			OnlineCrlsPath       string `yaml:"onlineCrlsPath"`
+			OfflineCrlsPath      string `yaml:"offlineCrlsPath"`
+			GitStoragePath       string `yaml:"gitStoragePath"`
+			CAstoragePath        string `yaml:"CAstoragePath"`
+			OnlineCAStoragePath  string `yaml:"onlineCAStoragePath"`
+			OfflineCAStoragePath string `yaml:"offlineCAStoragePath"`
+			GitRepoURL           string `yaml:"gitRepoURL"`
 		} `yaml:"global"`
 		Alarmathan struct {
 			Activate    bool   `yaml:"activate"`

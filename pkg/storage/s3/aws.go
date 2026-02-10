@@ -17,12 +17,25 @@ import (
 // 	return c.ListBuckets(ctx, input)
 // }
 
+var s3Config *S3Config
+var initError error
+
 // Init S3 variable from AWS S3 environment variables
 func init() {
-	_, err := AWSValidateS3ConfigFromEnv()
+	var err error
+	s3Config, err = AWSValidateS3ConfigFromEnv()
 	if err != nil {
 		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("AWS S3 configuration validation failed: %v", err))
+		initError = err
 	}
+}
+
+// Return the initiated s3Config
+func GetS3Config() (*S3Config, error) {
+	if initError != nil {
+		return nil, initError
+	}
+	return s3Config, nil
 }
 
 // AWSGetS3ConfigFromEnv retrieves S3 configuration from the environment variables for AWS S3.
@@ -58,6 +71,9 @@ func AWSValidateS3ConfigFromEnv() (*S3Config, error) {
 	} else {
 		os.Setenv("S3_BUCKET_NAME", os.Getenv("AWS_S3_BUCKET_NAME"))
 	}
+	if os.Getenv("AWS_REGION") == "" {
+		missingVars = append(missingVars, "AWS_REGION")
+	}
 
 	if len(missingVars) > 0 {
 		for _, v := range missingVars {
@@ -70,6 +86,7 @@ func AWSValidateS3ConfigFromEnv() (*S3Config, error) {
 		ServiceInstanceID: os.Getenv("AWS_S3_SERVICE_INSTANCE_ID"),
 		AuthEndpoint:      os.Getenv("AWS_S3_AUTH_ENDPOINT"),
 		ServiceEndpoint:   os.Getenv("AWS_S3_SERVICE_ENDPOINT"),
+		Region:            os.Getenv("AWS_REGION"),
 	}, nil
 }
 
@@ -79,6 +96,7 @@ func AWSCreateS3Client() (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to load AWS SDK config, %v", err)
 	}
+	logging.LogToConsole(logging.DebugLevel, logging.DebugEvent, fmt.Sprintf("Following is the s3Config: %v", s3Config))
 
 	// Create S3 service client
 	client := awsS3.NewFromConfig(s3Config, func(o *awsS3.Options) {
@@ -86,6 +104,8 @@ func AWSCreateS3Client() (*Client, error) {
 		o.UsePathStyle = true
 		if os.Getenv("AWS_S3_SSL_ENABLED") == "false" {
 			o.EndpointOptions.DisableHTTPS = true
+		} else {
+			o.EndpointOptions.DisableHTTPS = false
 		}
 	})
 	return client, nil
@@ -117,5 +137,11 @@ func AWSGetObjectInput(bucketName, objectKey string) *awsS3.GetObjectInput {
 	return &awsS3.GetObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(objectKey),
+	}
+}
+
+func AWSHeadBucketInput(bucketName string) *awsS3.HeadBucketInput {
+	return &awsS3.HeadBucketInput{
+		Bucket: aws.String(bucketName),
 	}
 }

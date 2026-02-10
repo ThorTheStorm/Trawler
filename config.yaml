@@ -5,11 +5,14 @@ configurations:
     logLevel: info
     outputFormat: pretty
     pollIntervalMinutes: 2
-    onlineCrlsPath: /crls/online/
-    offlineCrlsPath: /crls/offline/
-    gitStoragePath: /git/
-    CAstoragePath: /certs/
-    gitRepoURL: "https://git.nhn.no/ldp/pki/pki.nhn.no.git"
+    dataPath: /data/
+    onlineCrlsPath: /data/crls/online/
+    offlineCrlsPath: /data/crls/offline/
+    gitStoragePath: /data/git/
+    CAstoragePath: /data/certs/
+    onlineCAStoragePath: /data/certs/online/
+    offlineCAStoragePath: /data/certs/offline/
+    gitRepoURL: "https://helsegitlab.nhn.no/intern-pki/pki-resources.git"
   alarmathan:
     activate: false
     webhookURL: https://alarm.test.nhn.no/v1/webhook
@@ -34,3 +37,12 @@ configurations:
   # - Name: DigiCert EV RSA CA G2
   #   URL: http://crl4.digicert.com/DigiCertEVRSACAG2.crl
   #   CertFile: ./certs/DigiCert EV RSA CA G2.crt
+  offlineCrls:
+  # List of offline CRLs to monitor (file-based)
+  ## NHN offline roots
+  ### NHN Internal Root CA - PROD
+  - name: NHN Internal Root CA - PROD
+    certFileName: NHN Internal Root CA - PROD.crt
+  ### NHN Internal Root CA - TEST
+  - name: NHN Internal Root CA - TEST
+    certFileName: NHN Internal Root CA - TEST.crt

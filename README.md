@@ -1,5 +1,4 @@
 # Trawler
-<<<<<<< HEAD
 A PKI-CRL retriever, validator, and storage facilitator.
 =======
 

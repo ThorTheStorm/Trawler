@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	api "trawler/pkg/api/health"
 	cfg "trawler/pkg/config"
+	git "trawler/pkg/git"
+	health "trawler/pkg/health"
 	logging "trawler/pkg/logging"
 	"trawler/pkg/storage"
 	"trawler/pkg/storage/s3"
@@ -18,6 +22,12 @@ var s3Client *s3.Client            // S3 client variable
 var configPath string              // Configuration variables
 var config *cfg.Config             // Global configuration variable
 var vaultClient *vault.VaultClient // Vault client variable
+var gitConfig *git.GitConfig
+
+// Variables for health
+var s3HealthStatus = health.HealthStatusUnknown
+var vaultHealthStatus = health.HealthStatusUnknown
+var gitHealthStatus = health.HealthStatusUnknown
 
 func init() {
 
@@ -41,72 +51,71 @@ func init() {
 		os.Exit(1)
 	}
 
-	// Setup file-structure on local storage
+	// Validate file-structure on local storage
+	//syscall.Umask(0022) // Set umask to ensure created directories are writable
 	if config.Configurations.Global.LocalStorageEnabled {
-		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Local storage enabled, setting up local storage structure.")
-
-		// Create online CRL storage folder
-		onlineCrlsPath := config.Configurations.Global.OnlineCrlsPath
-		err := storage.CreateFolderIfNotExists(onlineCrlsPath)
+		err := storage.ValidateLocalStoragePaths(config.Configurations.Global.DataPath, config.Configurations.Global.OnlineCrlsPath, config.Configurations.Global.OfflineCrlsPath, config.Configurations.Global.GitStoragePath)
 		if err != nil {
-			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to create online CRL storage folder: %v", err))
-		} else {
-			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Online CRL storage folder ensured at: %s", onlineCrlsPath))
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Local storage path validation failed: %v", err))
+			os.Exit(1)
 		}
-
-		// Create CA storage folder
-		gitStoragePath := config.Configurations.Global.GitStoragePath
-		err = storage.CreateFolderIfNotExists(gitStoragePath)
-		if err != nil {
-			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to create CA storage folder: %v", err))
-		} else {
-			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("CA storage folder ensured at: %s", gitStoragePath))
-		}
+		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Local storage paths validated successfully.")
 	}
 
-	// Initialize S3 client if S3 storage is enabled
-	if os.Getenv("S3_STORAGE_ENABLED") == "true" {
-		var err error
+	// Initialize S3 client if S3 storage is enabled and configuration is valid
+	s3Config, err := s3.GetS3Config()
+
+	if err != nil && s3Config == nil {
+		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("S3 configuration validation failed: %v", err))
+	} else if s3Config != nil {
+		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "S3 storage enabled and configuration validated successfully.")
 		s3Client, err = s3.AWSCreateS3Client()
 		if err != nil {
 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to create S3 client: %v", err))
 		}
+	}
+	// Validate access to the S3 bucket
+	_, err = s3Client.HeadBucket(context.TODO(), s3.AWSHeadBucketInput(
+		//TODO: consider moving this to a separate health check function that can be called periodically instead of just at startup
+		//TODO: Fix this error: Failed to access S3 bucket: operation error S3: HeadBucket, https response error StatusCode: 301, RequestID: , HostID: , api error MovedPermanently: Moved Permanently
+		os.Getenv("AWS_S3_BUCKET_NAME"),
+	))
+	if err != nil {
+		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to access S3 bucket: %v", err))
+		s3HealthStatus = health.HealthStatusUnhealthy
+	} else {
+		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Successfully accessed S3 bucket.")
+		s3HealthStatus = health.HealthStatusOK
+
 	}
 
 	// Get vault client
 	if os.Getenv("VAULT_ENABLED") == "true" {
 		vaultClient = vault.GetVaultClient()
 	}
-	// // Retrieve certificates for CA validation
-	// if config.Configurations.Global.GitStoragePath != "" && config.Configurations.Global.GitRepoURL != "" {
-	// 	repoExist := false // Set default to false and only set to true if we successfully open or clone the repository
-	// 	repo, err := gitops.OpenRepository(config.Configurations.Global.GitStoragePath)
-	// 	if err != nil && err == gitops.ErrRepositoryNotExists {
-	// 		logging.LogToConsole(logging.WarningLevel, logging.WarningEvent, "Couldn't find repository in given directory. Cloning from remote.")
 
-	// 		repo, err = gitops.CloneRepository(config.Configurations.Global.GitRepoURL, config.Configurations.Global.GitStoragePath)
-	// 		if err != nil {
-	// 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to clone CA storage repository: %v", err))
-	// 		} else {
-	// 			repoExist = true
-	// 		}
-	// 	} else if err != nil {
-	// 		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to open CA storage repository: %v", err))
-	// 	} else {
-	// 		repoExist = true
-	// 	}
+	// Validate Git configuration
+	gitConfig, err = git.ValidateGitConfig()
+	if err != nil {
+		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Git configuration validation failed: %v", err))
+	} else {
+		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Git configuration validated successfully.")
+	}
 
-	// 	// Only attempt to pull changes if repository exists (either opened or cloned successfully)
-	// 	if repoExist == true {
-	// 		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Pulling latest changes from CA storage repository.")
-	// 		err = gitops.PullRepository(repo)
-	// 		if err != nil {
-	// 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to pull latest changes from CA storage repository: %v", err))
-	// 		}
-	// 	}
-	// } else {
-	// 	logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, "CA storage path or Git repository URL not set in configuration.")
-	// }
+	if gitConfig.Enabled == true {
+		// Validate access to Git repository
+		_, err := git.CloneRepository(config.Configurations.Global.GitStoragePath)
+		if err != nil && err != git.ErrRepoAlreadyExists {
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to access Git repository: %v", err))
+			gitHealthStatus = health.HealthStatusUnhealthy
+		} else {
+			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Successfully accessed Git repository.")
+			gitHealthStatus = health.HealthStatusOK
+		}
+	} else {
+		logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Git storage not enabled, skipping Git repository access validation.")
+		gitHealthStatus = health.HealthStatusUnknown
+	}
 }
 
 func main() {
@@ -115,7 +124,7 @@ func main() {
 	////////////////////////////////////////////////
 
 	// Define how many processes to wait for
-	wg.Add(2)
+	wg.Add(3)
 
 	// All channels for error-handling and graceful shutdown
 	serverError := make(chan error, 1)                // Channel to capture server errors
@@ -130,8 +139,16 @@ func main() {
 
 	// Start CRL retrieval worker
 	go func() {
+		defer wg.Done()
 		crlRetrievalWorker(config, errChannel, stopChannel)
-		wg.Done()
+	}()
+
+	// Start health API server
+	go func() {
+		defer wg.Done()
+		if err := api.StartHealthServer(8080, stopChannel); err != nil {
+			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Health server error: %v", err))
+		}
 	}()
 
 	// Setup signal capturing for graceful shutdown

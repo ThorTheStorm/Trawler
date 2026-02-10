@@ -13,6 +13,7 @@ type S3Config struct {
 	ServiceInstanceID string
 	AuthEndpoint      string
 	ServiceEndpoint   string
+	Region            string
 }
 
 type S3Authentication struct {
