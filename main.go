@@ -95,6 +95,8 @@ func init() {
 	}
 
 	// Validate Git configuration
+	//TODO: consider moving this to a separate health check function that can be called periodically instead of just at startup
+	//TODO: Implement checking if Git-storage is enabled before validating Git configuration
 	gitConfig, err = git.ValidateGitConfig()
 	if err != nil {
 		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Git configuration validation failed: %v", err))

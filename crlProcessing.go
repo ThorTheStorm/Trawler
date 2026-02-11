@@ -26,6 +26,7 @@ func crlRetrievalWorker(config *cfg.Config, errChannel chan<- logging.ErrorRepor
 	defer ticker.Stop()
 
 	// Run once immediately, then on interval
+	//TODO: Implement checking if Git-storage is enabled and if so, perform a sync before the first run
 	err = git.CopyItemsToLocalStorage(config)
 	if err != nil {
 		logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error copying from Git repository to local storage: %v", err))
