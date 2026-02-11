@@ -108,6 +108,9 @@ func init() {
 		if err != nil && err != git.ErrRepoAlreadyExists {
 			logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Failed to access Git repository: %v", err))
 			gitHealthStatus = health.HealthStatusUnhealthy
+		} else if err != nil && err == git.ErrRepoAlreadyExists {
+			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Git repository already exists locally.")
+			gitHealthStatus = health.HealthStatusOK
 		} else {
 			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Successfully accessed Git repository.")
 			gitHealthStatus = health.HealthStatusOK

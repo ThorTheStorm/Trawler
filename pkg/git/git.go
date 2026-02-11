@@ -130,26 +130,19 @@ func CopyItemsToLocalStorage(config *cfg.Config) error {
 	}
 
 	var directoriesFromTo = []DirectoriesFromTo{
-		{From: config.Configurations.Global.OnlineCAStoragePath, To: config.Configurations.Global.GitStoragePath + "/cas-online"},
-		{From: config.Configurations.Global.OfflineCAStoragePath, To: config.Configurations.Global.GitStoragePath + "/cas-offline"},
-		{From: config.Configurations.Global.OfflineCrlsPath, To: config.Configurations.Global.GitStoragePath + "/crls-offline"},
+		{From: config.Configurations.Global.GitStoragePath + "cas-online", To: config.Configurations.Global.OnlineCAStoragePath},
+		{From: config.Configurations.Global.GitStoragePath + "cas-offline", To: config.Configurations.Global.OfflineCAStoragePath},
+		{From: config.Configurations.Global.GitStoragePath + "crls-offline", To: config.Configurations.Global.OfflineCrlsPath},
 	}
 
-	value := reflect.ValueOf(directoriesFromTo)
-	typ := value.Type()
-
-	for i := 0; i < value.NumField(); i++ {
-		field := typ.Field(i)
-		dirFrom := field.Name
-		dirTo := value.Field(i).Interface().(string)
-
-		if dirFrom != "" {
-			err := storage.CopyFile(dirFrom, dirTo)
+	for _, dir := range directoriesFromTo {
+		if dir.From != "" {
+			err := storage.CopyFolder(dir.From, dir.To)
 			if err != nil {
-				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error copying %s to local storage: %v", dirFrom, err))
+				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error copying %s to %s: %v", dir.From, dir.To, err))
 				return err
 			} else {
-				logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Successfully copied %s to local storage.", dirFrom))
+				logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, fmt.Sprintf("Successfully copied %s to %s.", dir.From, dir.To))
 			}
 		}
 	}
