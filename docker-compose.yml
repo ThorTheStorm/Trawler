@@ -1,6 +1,6 @@
 services:
   trawler:
-    image: ncr.sky.nhn.no/team-krypto/trawler:v0.1.1
+    image: ncr.sky.nhn.no/team-krypto/trawler:v0.1.2
     #build: .
     container_name: trawler
     env_file:

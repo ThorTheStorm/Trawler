@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"time"
 
 	yaml "gopkg.in/yaml.v3"
 )
@@ -53,4 +54,22 @@ func ParseConfig(filePath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func RefreshConfig(config *Config, filePath string, intervalMinutes int) (bool, error) {
+	configInfo, err := os.Stat(filePath)
+	if err != nil {
+		return false, err
+	}
+
+	if configInfo.ModTime().After(time.Now().Add(-time.Duration(intervalMinutes) * time.Minute)) {
+		newConfig, err := ParseConfig(filePath)
+		if err != nil {
+			return false, err
+		}
+		*config = *newConfig
+		return true, nil
+	}
+
+	return false, nil
 }

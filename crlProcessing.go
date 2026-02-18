@@ -42,8 +42,18 @@ func crlRetrievalWorker(config *cfg.Config, errChannel chan<- logging.ErrorRepor
 			logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Graceful shutdown of Trawler.")
 			return
 		case <-ticker.C:
+			// On each tick, refresh config and process CRLs
+			configRenewed, err := cfg.RefreshConfig(config, configPath, config.Configurations.Global.PollIntervalMinutes)
+			if err != nil {
+				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error refreshing config: %v", err))
+			}
+			if configRenewed {
+				logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Configuration refreshed successfully.")
+			} else {
+				logging.LogToConsole(logging.InfoLevel, logging.InfoEvent, "Configuration not refreshed, no changes detected.")
+			}
 			// Execute Git sync on interval BEFORE processing CRLs
-			err := git.CopyItemsToLocalStorage(config)
+			err = git.CopyItemsToLocalStorage(config)
 			if err != nil {
 				logging.LogToConsole(logging.ErrorLevel, logging.ErrorEvent, fmt.Sprintf("Error copying from Git repository to local storage: %v", err))
 			} else {

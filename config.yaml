@@ -4,7 +4,7 @@ configurations:
     s3StorageEnabled: true
     logLevel: info
     outputFormat: pretty
-    pollIntervalMinutes: 2
+    pollIntervalMinutes: 4
     dataPath: /data/
     onlineCrlsPath: /data/crls/online/
     offlineCrlsPath: /data/crls/offline/
